@@ -137,9 +137,22 @@ class SliderHapticFeedbackProvider(
                 config.deltaProgressForDragThreshold
 
         // Slider step conditions
-        val discreteStepPassed =
-            config.sliderStepSize > 0 &&
-                normalizedSliderProgress.isDiscreteStep(config.sliderStepSize)
+        // Pointer updates almost never land exactly on a mathematical step. Compare
+        // quantized buckets instead, otherwise a discrete slider silently becomes
+        // continuous (or skips all haptics) depending on touch sampling frequency.
+        val discreteStepPassed = if (config.sliderStepSize > 0) {
+            val currentStep =
+                round(normalizedSliderProgress / config.sliderStepSize).toInt()
+            val lastStep =
+                if (dragTextureLastProgress < 0f) {
+                    Int.MIN_VALUE
+                } else {
+                    round(dragTextureLastProgress / config.sliderStepSize).toInt()
+                }
+            currentStep != lastStep
+        } else {
+            false
+        }
         val shouldStepVibrate = config.sliderStepSize == 0f || discreteStepPassed
 
         return if (isComingFromBookend) {
@@ -147,12 +160,6 @@ class SliderHapticFeedbackProvider(
         } else {
             timeThresholdPassed && progressThresholdPassed && shouldStepVibrate
         }
-    }
-
-    private fun Float.isDiscreteStep(stepSize: Float, epsilon: Float = 0.001f): Boolean {
-        if (stepSize <= 0f) return false
-        val division = this / stepSize
-        return abs(division - round(division)) < epsilon
     }
 
     private fun performDiscreteSliderDragVibration(scale: Float) {

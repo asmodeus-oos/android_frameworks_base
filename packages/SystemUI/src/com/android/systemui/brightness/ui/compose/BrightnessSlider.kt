@@ -188,7 +188,18 @@ fun BrightnessSlider(
                     floatValueRange,
                     Orientation.Horizontal,
                     SliderHapticFeedbackConfig(
-                        maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */
+                        maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */,
+                        // Brightness is a quantized control on ferrari. Use one short
+                        // click per roughly 2.5% of travel instead of five overlapping
+                        // continuous ticks on every pointer update.
+                        progressBasedDragMinScale = 0.15f,
+                        progressBasedDragMaxScale = 0.30f,
+                        additionalVelocityMaxBump = 0.03f,
+                        deltaProgressForDragThreshold = 0.02f,
+                        numberOfLowTicks = 1,
+                        lowerBookendScale = 0.12f,
+                        upperBookendScale = 0.30f,
+                        sliderStepSize = 0.025f,
                     ),
                     SeekableSliderTrackerConfig(),
                 )
