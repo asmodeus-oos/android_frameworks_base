@@ -204,8 +204,11 @@ public class MultisensoryComposedEffect implements MultisensoryHapticEffect {
                 }
                 builder.addAmplitudeControlFallbackEffect(
                                 VibrationEffect.createWaveform(
-                                        new long[] {10, 20, 20, 10},
-                                        new int[] {10, 30, 50, 10}, /*repeat*/
+                                        // The ferrari uses a high-bandwidth X-axis LRA.  A
+                                        // shorter, sharper envelope is easier to feel without
+                                        // turning continuous slider movement into a rattle.
+                                        new long[] {8, 14, 14, 8},
+                                        new int[] {16, 48, 82, 16}, /*repeat*/
                                         -1))
                         // TODO(b/462734796): Clarify the parameters of base envelopes
                         .addEnvelopeEffect(/*baseScale*/ 0.2f, /*baseFrequency*/ 100f);
