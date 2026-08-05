@@ -181,7 +181,14 @@ public class FlashlightControllerImpl implements FlashlightController {
                                 int level = (mCurrentLevel > 0) ? mCurrentLevel : mDefaultLevel;
                                 level = Math.max(1, Math.min(level, mMaxLevel));
                                 if (DEBUG) Log.d(TAG, "Turning on torch with level " + level);
-                                mCameraManager.turnOnTorchWithStrengthLevel(mCameraId.get(), level);
+                                try {
+                                    mCameraManager.turnOnTorchWithStrengthLevel(mCameraId.get(), level);
+                                } catch (CameraAccessException e) {
+                                    // Some vendor HALs expose strength metadata but only
+                                    // support the legacy binary torch operation.
+                                    if (DEBUG) Log.d(TAG, "Falling back to binary torch mode", e);
+                                    mCameraManager.setTorchMode(mCameraId.get(), true);
+                                }
                             } else {
                                 if (DEBUG) Log.d(TAG, "Turning on torch (no strength support)");
                                 mCameraManager.setTorchMode(mCameraId.get(), true);

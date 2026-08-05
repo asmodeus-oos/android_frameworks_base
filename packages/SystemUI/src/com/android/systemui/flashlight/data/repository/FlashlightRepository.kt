@@ -401,12 +401,19 @@ constructor(
             try {
                 if (enabled != currentState.enabled) {
                     if (currentFlashlightInfo.hasAdjustableLevels && enabled) {
-                        cameraManager.turnOnTorchWithStrengthLevel(
-                            currentFlashlightInfo.cameraId,
-                            defaultEnabledLevelForUser.getOrPut(currentUserId) {
-                                initialDefaultLevel
-                            },
-                        )
+                        try {
+                            cameraManager.turnOnTorchWithStrengthLevel(
+                                currentFlashlightInfo.cameraId,
+                                defaultEnabledLevelForUser.getOrPut(currentUserId) {
+                                    initialDefaultLevel
+                                },
+                            )
+                        } catch (e: CameraAccessException) {
+                            // A few vendor HALs report strength metadata but only
+                            // implement the legacy binary torch operation.
+                            logger.w("Strength torch call failed; falling back to binary mode")
+                            cameraManager.setTorchMode(currentFlashlightInfo.cameraId, true)
+                        }
                     } else {
                         cameraManager.setTorchMode(currentFlashlightInfo.cameraId, enabled)
                     }
