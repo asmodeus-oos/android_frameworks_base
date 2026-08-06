@@ -192,7 +192,13 @@ private fun VolumeDialogSlider(
             Haptics.Enabled(
                 hapticsViewModelFactory = hapticsViewModelFactory,
                 hapticConfigs =
-                    VolumeHapticsConfigsProvider.continuousConfigs(SliderHapticFeedbackFilter()),
+                    VolumeHapticsConfigsProvider.discreteConfigs(
+                        stepSize =
+                            1f /
+                                (sliderStateModel.valueRange.endInclusive -
+                                    sliderStateModel.valueRange.start),
+                        filter = SliderHapticFeedbackFilter(),
+                    ),
                 orientation =
                     if (isVolumeDialogVertical) {
                         Orientation.Vertical
