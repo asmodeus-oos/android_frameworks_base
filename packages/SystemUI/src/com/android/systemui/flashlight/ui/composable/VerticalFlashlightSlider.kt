@@ -150,7 +150,15 @@ fun VerticalFlashlightSlider(
                 floatValueRange,
                 Orientation.Vertical,
                 SliderHapticFeedbackConfig(
-                    maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */
+                    maxVelocityToScale = 1f /* slider progress(from 0 to 1) per sec */,
+                    progressBasedDragMinScale = 0.15f,
+                    progressBasedDragMaxScale = 0.30f,
+                    additionalVelocityMaxBump = 0.03f,
+                    deltaProgressForDragThreshold = 0.02f,
+                    numberOfLowTicks = 1,
+                    lowerBookendScale = 0.12f,
+                    upperBookendScale = 0.30f,
+                    sliderStepSize = 0.04f,
                 ),
                 SeekableSliderTrackerConfig(),
             )
