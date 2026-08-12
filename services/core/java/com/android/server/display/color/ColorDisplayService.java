@@ -126,6 +126,7 @@ public final class ColorDisplayService extends SystemService {
     private static final int MSG_APPLY_DISPLAY_WHITE_BALANCE = 5;
     private static final int MSG_APPLY_REDUCE_BRIGHT_COLORS = 6;
     private static final int MSG_APPLY_UPDATE_DISPLAY_ENGINE = 7;
+    private static final int MSG_REAPPLY_COLOR_TRANSFORMS = 8;
 
     /**
      * Return value if a setting has not been set.
@@ -200,6 +201,21 @@ public final class ColorDisplayService extends SystemService {
     private ReduceBrightColorsListener mReduceBrightColorsListener;
 
     private NightDisplayAutoMode mNightDisplayAutoMode;
+
+    /**
+     * Re-applies composed color transforms after the display powers on. QCOM HWC
+     * can drop panel PCC across power transitions; SF may also skip an unchanged
+     * matrix. See MSG_REAPPLY_COLOR_TRANSFORMS.
+     */
+    private final BroadcastReceiver mDisplayPowerReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_SCREEN_ON.equals(intent.getAction())) {
+                mHandler.sendEmptyMessage(MSG_REAPPLY_COLOR_TRANSFORMS);
+            }
+        }
+    };
+    private boolean mDisplayPowerReceiverRegistered;
 
     /**
      * Map of color modes -> display composition colorspace
@@ -587,6 +603,26 @@ public final class ColorDisplayService extends SystemService {
         if (mDisplayEngineController.isAvailable(getContext())) {
             mHandler.sendEmptyMessage(MSG_APPLY_UPDATE_DISPLAY_ENGINE);
         }
+
+        if (!mDisplayPowerReceiverRegistered) {
+            final IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
+            getContext().registerReceiverForAllUsers(mDisplayPowerReceiver, filter,
+                    null /* permission */, mHandler, Context.RECEIVER_NOT_EXPORTED);
+            mDisplayPowerReceiverRegistered = true;
+        }
+    }
+
+    private void reapplyColorTransformsForDisplayPower() {
+        // After panel power-on, force SF→HWC to push Night Light / RBC again.
+        if (!mNightDisplayTintController.isActivated()
+                && !(mReduceBrightColorsTintController.isAvailable(getContext())
+                        && mReduceBrightColorsTintController.isActivated())) {
+            return;
+        }
+        final DisplayTransformManager dtm = getLocalService(DisplayTransformManager.class);
+        if (dtm != null) {
+            dtm.reapplyColorMatrix();
+        }
     }
 
     private void setUpColorInversionAccessibility() {
@@ -623,6 +659,11 @@ public final class ColorDisplayService extends SystemService {
 
     private void tearDown() {
         Slog.d(TAG, "tearDown: currentUser=" + mCurrentUser);
+
+        if (mDisplayPowerReceiverRegistered) {
+            getContext().unregisterReceiver(mDisplayPowerReceiver);
+            mDisplayPowerReceiverRegistered = false;
+        }
 
         if (mContentObserver != null) {
             getContext().getContentResolver().unregisterContentObserver(mContentObserver);
@@ -1989,6 +2030,9 @@ public final class ColorDisplayService extends SystemService {
                 case MSG_APPLY_UPDATE_DISPLAY_ENGINE:
                     mDisplayEngineController.updateBalance(getContext(), mCurrentUser);
                     applyTint(mDisplayEngineController, true);
+                    break;
+                case MSG_REAPPLY_COLOR_TRANSFORMS:
+                    reapplyColorTransformsForDisplayPower();
                     break;
             }
         }

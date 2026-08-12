@@ -411,7 +411,10 @@ public class DozeTriggers implements DozeMachine.Part {
 
     private void gentleWakeUp(@DozeLog.Reason int reason) {
         if (shouldVibrate(reason)) wakeVibrate();
-        if (dozeInsteadOfWake(reason)) {
+        // ferrari/Oplus: with AOD off, doze pulses often leave a dim wallpaper-only
+        // frame (lockscreen/UDFPS alpha 0) even though FP still authenticates.
+        // Prefer a real interactive keyguard wake so clock + FP icon are visible.
+        if (dozeInsteadOfWake(reason) && mConfig.alwaysOnEnabled(mUserTracker.getUserId())) {
             requestPulse(reason, true, null);
             return;
         }
@@ -425,6 +428,14 @@ public class DozeTriggers implements DozeMachine.Part {
             mDozeHost.setAodDimmingScrim(1f);
         }
         mMachine.wakeUp(reason);
+    }
+
+    /** Reasons that pulse to WITHOUT_UI / AUTH_UI and hide the lockscreen affordances. */
+    private static boolean isSelectiveUiPulseReason(int reason) {
+        return reason == DozeLog.REASON_SENSOR_UDFPS_LONG_PRESS
+                || reason == DozeLog.REASON_SENSOR_QUICK_PICKUP
+                || reason == DozeLog.PULSE_REASON_FINGERPRINT_PULSE_SHOW_AUTH_UI
+                || reason == DozeLog.PULSE_REASON_FINGERPRINT_PULSE_SHOW_FULL_UI;
     }
 
     private void wakeVibrate() {
@@ -610,6 +621,14 @@ public class DozeTriggers implements DozeMachine.Part {
     private void requestPulse(final int reason, boolean performedProxCheck,
             Runnable onPulseSuppressedListener) {
         Assert.isMainThread();
+        // With AOD off, selective-UI pulses (UDFPS / fingerprint auth) commonly
+        // produce a dim wallpaper-only frame without the fingerprint icon on
+        // this panel. Wake the interactive keyguard instead.
+        if (isSelectiveUiPulseReason(reason)
+                && !mConfig.alwaysOnEnabled(mUserTracker.getUserId())) {
+            gentleWakeUp(reason);
+            return;
+        }
         mDozeHost.extendPulse(reason);
 
         final DozeMachine.State dozeState = mMachine.getState();

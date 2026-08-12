@@ -172,6 +172,18 @@ public class DisplayTransformManager {
     }
 
     /**
+     * Force-push the composed color matrix to SurfaceFlinger even if unchanged.
+     * Needed after display power-on: HWC may have dropped PCC, but SF skips
+     * setColorTransform when colorMatrixChanged is false.
+     */
+    public void reapplyColorMatrix() {
+        synchronized (mColorMatrix) {
+            applyColorMatrix(computeColorMatrixLocked());
+        }
+        Slog.i(TAG, "ReapplyColorMatrix");
+    }
+
+    /**
      * Sets the current Daltonization mode. This adjusts the color space to correct for or simulate
      * various types of color blindness.
      *
