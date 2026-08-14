@@ -136,6 +136,10 @@ constructor(
         return overlayTouchView
     }
 
+    fun setFingerDown(fingerDown: Boolean) {
+        udfpsHelper?.setFingerDown(fingerDown)
+    }
+
     private var overlayParams: UdfpsOverlayParams = UdfpsOverlayParams()
     private var sensorBounds: Rect = Rect()
 

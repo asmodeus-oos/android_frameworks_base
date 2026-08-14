@@ -40,6 +40,8 @@ import kotlinx.coroutines.launch
 
 private const val TAG = "UdfpsHelper"
 
+private const val DOZE_DIM_ALPHA = 0.98f
+
 /**
  * Facilitates implementations that use GHBM where dim layer
  * and pressed icon aren't controlled by kernel
@@ -48,7 +50,7 @@ private const val TAG = "UdfpsHelper"
 class UdfpsHelper(
     private val context: Context,
     private val windowManager: WindowManager,
-    private val shadeInteractor: ShadeInteractor,
+    @Suppress("UNUSED_PARAMETER") private val shadeInteractor: ShadeInteractor,
     @RequestReason val requestReason: Int,
     private val brightnessMirrorShowingInteractor: BrightnessMirrorShowingInteractor,
     private var view: View = View(context).apply {
@@ -94,7 +96,12 @@ class UdfpsHelper(
     private val alphaAnimator = ValueAnimator().apply {
         duration = 800L
         addUpdateListener { animator ->
-            dimLayoutParams.alpha = animator.animatedValue as Float
+            val animAlpha = animator.animatedValue as Float
+            view.alpha = animAlpha
+            dimLayoutParams.alpha = animAlpha
+            if (!view.isAttachedToWindow) {
+                return@addUpdateListener
+            }
             try {
                 windowManager.updateViewLayout(view, dimLayoutParams)
             } catch (e: IllegalArgumentException) {
@@ -107,10 +114,14 @@ class UdfpsHelper(
         override fun onDisplayAdded(displayId: Int) {}
 
         override fun onDisplayChanged(displayId: Int) {
-            if (displayId == Display.DEFAULT_DISPLAY && view.isAttachedToWindow) {
-                brightnessToAlpha()
-                windowManager.updateViewLayout(view, dimLayoutParams)
+            if (displayId != Display.DEFAULT_DISPLAY || !view.isAttachedToWindow) {
+                return
             }
+            if (isKeyguard && !shouldApplyKeyguardDim()) {
+                return
+            }
+            brightnessToAlpha()
+            updateDimLayout()
         }
 
         override fun onDisplayRemoved(displayId: Int) {}
@@ -143,27 +154,66 @@ class UdfpsHelper(
         ).div(255.0f)
     }
 
+    private fun isDozeActive(): Boolean {
+        val display = displayManager.getDisplay(Display.DEFAULT_DISPLAY) ?: return false
+        return display.state == Display.STATE_DOZE || display.state == Display.STATE_DOZE_SUSPEND
+    }
+
     // The current function does not account for Doze state where the brightness can go lower
     // than what is set on config_screenBrightnessSettingMinimumFloat.
     // While it's possible to operate with floats, the dimming array was made by referencing
     // brightness_alpha_lut array from the kernel. This provides a comparable array.
     private fun brightnessToAlpha() {
-        val adjustedBrightness =
-            (currentBrightness.coerceIn(minBrightness, maxBrightness) * maxPanelBrightness).toInt()
+        val targetAlpha: Float
+        if (isDozeActive()) {
+            // While dozing the panel luminance comes from the AOD (LP1) mode,
+            // not from the backlight value, so the LUT below is not calibrated
+            // for it. The sensor still needs the full panel HBM, so dim the
+            // rest of the screen near-black to keep the AOD content from
+            // visibly brightening during the fingerprint press.
+            targetAlpha = DOZE_DIM_ALPHA
+        } else {
+            val adjustedBrightness =
+                (currentBrightness.coerceIn(minBrightness, maxBrightness) * maxPanelBrightness)
+                    .toInt()
 
-        val targetAlpha = brightnessAlphaMap[adjustedBrightness]?.div(255.0f)
-            ?: interpolateAlpha(adjustedBrightness)
+            targetAlpha = brightnessAlphaMap[adjustedBrightness]?.div(255.0f)
+                ?: interpolateAlpha(adjustedBrightness)
+        }
 
-        Log.i(TAG, "Adjusted Brightness: $adjustedBrightness, Alpha: $targetAlpha")
+        Log.i(TAG, "Dim Layer Alpha: $targetAlpha")
 
+        alphaAnimator.setFloatValues(view.alpha, targetAlpha)
+        applyDimAlpha(targetAlpha)
+    }
+
+    private fun applyDimAlpha(alpha: Float) {
         alphaAnimator.cancel()
-        alphaAnimator.setFloatValues(dimLayoutParams.alpha, targetAlpha)
-        // Keep the black view opaque: view and window alpha multiply during composition.
-        dimLayoutParams.alpha = targetAlpha
+        view.alpha = alpha
+        dimLayoutParams.alpha = alpha
+    }
+
+    private fun updateDimLayout() {
+        if (!view.isAttachedToWindow) {
+            return
+        }
+        try {
+            windowManager.updateViewLayout(view, dimLayoutParams)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "UDFPS dim layer is no longer attached", e)
+        }
     }
 
     fun addDimLayer() {
-        brightnessToAlpha()
+        // Keep the dim window in the tree for the overlay lifetime so press is an
+        // alpha update, not addView. Keyguard stays at alpha 0 until finger-down
+        // so SDM/kernel do not enable panel HBM on idle lock/unlock.
+        if (isKeyguard) {
+            applyDimAlpha(0f)
+        } else {
+            brightnessToAlpha()
+        }
+        view.isVisible = true
         windowManager.addView(view, dimLayoutParams)
         displayManager.registerDisplayListener(
             displayListener,
@@ -174,18 +224,15 @@ class UdfpsHelper(
 
     fun removeDimLayer() {
         alphaAnimator.cancel()
-        displayManager.unregisterDisplayListener(displayListener)
+        isFingerDown = false
         windowManager.removeView(view)
+        displayManager.unregisterDisplayListener(displayListener)
     }
 
     init {
         view.repeatWhenAttached {
             repeatOnLifecycle(Lifecycle.State.CREATED) {
                 listenForBrightnessMirror(this)
-
-                if (isKeyguard) {
-                    listenForShadeTouchability(this)
-                }
             }
         }
 
@@ -197,20 +244,42 @@ class UdfpsHelper(
     private suspend fun listenForBrightnessMirror(scope: CoroutineScope): Job {
         return scope.launch {
             brightnessMirrorShowingInteractor.isShowing.collect {
-                view.isVisible = !it
+                isBrightnessMirrorShowing = it
+                if (isKeyguard) {
+                    updateKeyguardDim()
+                } else {
+                    view.isVisible = !it
+                }
             }
         }
     }
 
-    private suspend fun listenForShadeTouchability(scope: CoroutineScope): Job {
-        return scope.launch {
-            shadeInteractor.isShadeTouchable.collect {
-                view.isVisible = it
-                if (view.isVisible) {
-                    brightnessToAlpha()
-                    alphaAnimator.start()
-                }
-            }
+    private var isBrightnessMirrorShowing: Boolean = false
+    private var isFingerDown: Boolean = false
+
+    fun setFingerDown(fingerDown: Boolean) {
+        if (isFingerDown == fingerDown) {
+            return
         }
+        isFingerDown = fingerDown
+        updateKeyguardDim()
+    }
+
+    private fun shouldApplyKeyguardDim(): Boolean {
+        return isFingerDown && !isBrightnessMirrorShowing
+    }
+
+    private fun updateKeyguardDim() {
+        if (!view.isAttachedToWindow) {
+            return
+        }
+        view.isVisible = true
+        if (shouldApplyKeyguardDim()) {
+            // Snap alpha so HBM and the dim pixels share the next composition.
+            brightnessToAlpha()
+        } else {
+            applyDimAlpha(0f)
+        }
+        updateDimLayout()
     }
 }

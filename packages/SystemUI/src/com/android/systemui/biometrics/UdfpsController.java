@@ -661,6 +661,9 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             // normal touch listener. Don't reset the down in this case to avoid duplicate downs
             if (!mIsAodInterruptActive) {
                 mOnFingerDown = false;
+                if (mOverlay != null) {
+                    mOverlay.setFingerDown(false);
+                }
             }
         }
 
@@ -1276,6 +1279,9 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             mDeviceEntryFaceAuthInteractor.onUdfpsSensorTouched();
         }
         mOnFingerDown = true;
+        if (mOverlay != null) {
+            mOverlay.setFingerDown(true);
+        }
         mFingerprintManager.onPointerDown(requestId, mSensorProps.sensorId, pointerId, x, y,
                 minor, major, orientation, time, gestureStart, isAod);
 
