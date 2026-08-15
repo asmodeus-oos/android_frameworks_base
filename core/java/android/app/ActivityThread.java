@@ -8228,6 +8228,10 @@ public final class ActivityThread extends ClientTransactionHandler
 
         GamePropsSpoofService.getInstance().spoofForPackage(data.appInfo.packageName);
 
+        // Banking preset: rewrite zygote-baked Build debug/signing fields before
+        // application code (e.g. Paytm) inspects them.
+        BankingCompatibilitySpoof.applyForPackage(data.appInfo.packageName);
+
         PlayIntegritySpoofService pifService = PlayIntegritySpoofService.getInstance();
         if (pifService.shouldSpoof(data.processName)) {
             pifService.spoofBuildFields(data.processName);

@@ -173,6 +173,7 @@ public class TrickyStoreService {
             "com.google.android.safetycore",
             "com.google.android.apps.walletnfcrel",
             "com.google.android.apps.nbu.paisa.user",
+            "net.one97.paytm",
             // Cert generation
             "com.revolut.revolut!",
             // Key attestation checkers, leaf hack
@@ -800,8 +801,8 @@ public class TrickyStoreService {
         maybeRefreshTargets();
         for (String pkg : packages) {
             if (XPOSED_PACKAGES.contains(pkg)) continue;
-            Mode mode = mPackageModes.get(pkg);
-            if (mode == Mode.SKIP) continue;
+            Mode mode = effectiveMode(pkg);
+            if (mode == null || mode == Mode.SKIP) continue;
             if (mode == Mode.LEAF_HACK) return true;
             // Only AUTO needs to know the TEE state. Probing it costs a real
             // attested key generation, so don't do it for untargeted apps.
@@ -815,12 +816,38 @@ public class TrickyStoreService {
         maybeRefreshTargets();
         for (String pkg : packages) {
             if (XPOSED_PACKAGES.contains(pkg)) continue;
-            Mode mode = mPackageModes.get(pkg);
-            if (mode == Mode.SKIP) continue;
+            Mode mode = effectiveMode(pkg);
+            if (mode == null || mode == Mode.SKIP) continue;
             if (mode == Mode.GENERATE) return true;
             if (mode == Mode.AUTO && isTeeBroken()) return true;
         }
         return false;
+    }
+
+    /**
+     * Banking compatibility apps need the same attestation path as an explicit
+     * AUTO target. Paytm and similar payment apps generate their own Keystore
+     * keys and exit when TEE attestation is unprovisioned.
+     */
+    private Mode effectiveMode(String pkg) {
+        Mode mode = mPackageModes.get(pkg);
+        if (mode != null) {
+            return mode;
+        }
+        return isBankingCompatibilityEnabled(pkg) ? Mode.AUTO : null;
+    }
+
+    private static boolean isBankingCompatibilityEnabled(String pkg) {
+        if (pkg == null) {
+            return false;
+        }
+        try {
+            IActivityManager am = ActivityManager.getService();
+            return am != null && am.isSandboxSpoofSettingEnabled(pkg, "banking_compatibility",
+                    android.os.UserHandle.getCallingUserId());
+        } catch (RemoteException e) {
+            return false;
+        }
     }
 
     private void maybeRefreshTargets() {

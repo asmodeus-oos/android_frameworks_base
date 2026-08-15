@@ -81,6 +81,7 @@ import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
+import android.hardware.usb.UsbManager;
 import android.media.audiofx.AudioEffect;
 import android.net.ConnectivityManager;
 import android.net.Proxy;
@@ -161,6 +162,8 @@ class BroadcastController {
 
     // Maximum number of receivers an app can register.
     private static final int MAX_RECEIVERS_ALLOWED_PER_APP = 1000;
+
+    private static final String BANKING_COMPATIBILITY = "banking_compatibility";
 
     /**
      * The number of top receivers/actions to dump when the number of receivers per app
@@ -530,7 +533,9 @@ class BroadcastController {
         }
 
         // The first sticky in the list is returned directly back to the client.
-        Intent sticky = allSticky != null ? allSticky.get(0).intent : null;
+        Intent sticky = allSticky != null
+                ? sanitizeUsbStateForPackage(allSticky.get(0).intent, callerPackage,
+                        mService) : null;
         if (DEBUG_BROADCAST) Slog.v(TAG_BROADCAST, "Register receiver " + filter + ": " + sticky);
         if (receiver == null) {
             return sticky;
@@ -619,7 +624,8 @@ class BroadcastController {
                     if (sticky == null && (exported || originalStickyCallingUid == callingUid
                             || ActivityManager.canAccessUnexportedComponents(
                             originalStickyCallingUid))) {
-                        sticky = broadcast.intent;
+                        sticky = sanitizeUsbStateForPackage(broadcast.intent, callerPackage,
+                                mService);
                     }
                     BroadcastQueue queue = mBroadcastQueue;
                     BroadcastRecord r = new BroadcastRecord(queue, broadcast.intent, null, null,
@@ -638,6 +644,46 @@ class BroadcastController {
 
             return sticky;
         }
+    }
+
+    /**
+     * Keep the real system USB state intact and specialize only the intent delivered to a package
+     * for which the user explicitly enabled the banking compatibility preset.
+     */
+    @VisibleForTesting
+    static Intent sanitizeUsbStateForPackage(Intent intent, String callerPackage,
+            boolean compatibilityEnabled) {
+        if (intent == null || callerPackage == null || !compatibilityEnabled
+                || !UsbManager.ACTION_USB_STATE.equals(intent.getAction())) {
+            return intent;
+        }
+
+        final Intent sanitized = new Intent(intent);
+        final Bundle extras = sanitized.getExtras();
+        if (extras != null) {
+            for (String key : new ArrayList<>(extras.keySet())) {
+                if (extras.get(key) instanceof Boolean) {
+                    extras.putBoolean(key, false);
+                }
+            }
+        }
+        return sanitized;
+    }
+
+    static Intent sanitizeUsbStateForPackage(Intent intent, String callerPackage,
+            ActivityManagerService service) {
+        // Avoid consulting the per-app sandbox for every non-USB broadcast.
+        final boolean compatibilityEnabled = intent != null
+                && UsbManager.ACTION_USB_STATE.equals(intent.getAction())
+                && isBankingCompatibilityEnabled(service, callerPackage);
+        return sanitizeUsbStateForPackage(intent, callerPackage, compatibilityEnabled);
+    }
+
+    static boolean isBankingCompatibilityEnabled(ActivityManagerService service,
+            String packageName) {
+        return service != null && packageName != null
+                && service.isSandboxSpoofSettingEnabled(packageName,
+                        BANKING_COMPATIBILITY, UserHandle.getCallingUserId());
     }
 
     @VisibleForTesting

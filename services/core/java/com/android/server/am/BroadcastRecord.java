@@ -730,9 +730,12 @@ final class BroadcastRecord extends Binder {
      *         to it being filtered away by {@link #filterExtrasForReceiver}.
      */
     @Nullable Intent getReceiverIntent(@NonNull Object receiver) {
-        Intent newIntent = null;
+        final String receiverPackage = getReceiverPackageName(receiver);
+        final Intent receiverIntent = BroadcastController.sanitizeUsbStateForPackage(intent,
+                receiverPackage, queue != null ? queue.mService : null);
+        Intent newIntent = receiverIntent != intent ? receiverIntent : null;
         if (filterExtrasForReceiver != null) {
-            final Bundle extras = intent.getExtras();
+            final Bundle extras = receiverIntent.getExtras();
             if (extras != null) {
                 final int receiverUid = getReceiverUid(receiver);
                 final Bundle filteredExtras = filterExtrasForReceiver.apply(receiverUid, extras);
@@ -740,18 +743,18 @@ final class BroadcastRecord extends Binder {
                     // Completely filtered; skip the broadcast!
                     return null;
                 } else {
-                    newIntent = new Intent(intent);
+                    newIntent = new Intent(receiverIntent);
                     newIntent.replaceExtras(filteredExtras);
                 }
             }
         }
         if (receiver instanceof ResolveInfo) {
             if (newIntent == null) {
-                newIntent = new Intent(intent);
+                newIntent = new Intent(receiverIntent);
             }
             newIntent.setComponent(((ResolveInfo) receiver).activityInfo.getComponentName());
         }
-        return (newIntent != null) ? newIntent : intent;
+        return (newIntent != null) ? newIntent : receiverIntent;
     }
 
     static boolean isCallerInstrumented(@Nullable ProcessRecord callerApp, int callingUid) {
