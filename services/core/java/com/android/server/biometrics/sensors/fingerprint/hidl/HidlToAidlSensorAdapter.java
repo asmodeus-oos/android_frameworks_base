@@ -214,7 +214,7 @@ public class HidlToAidlSensorAdapter extends Sensor implements IHwBinder.DeathRe
             Slog.e(TAG, "Failed to get fingerprint HAL", e);
         } catch (java.util.NoSuchElementException e) {
             // Service doesn't exist or cannot be opened.
-            Slog.w(TAG, "NoSuchElementException", e);
+            Slog.w(TAG, "NoSuchElementException: " + e.getMessage());
         }
 
         if (mDaemon == null) {

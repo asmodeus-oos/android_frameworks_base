@@ -177,7 +177,12 @@ public class BiometricScheduler<T, U> {
                     Slog.w(TAG, "operation is already null or different (reset?): "
                             + mCurrentOperation);
                 }
-                checkCurrentUserAndStartNextOperation();
+                if (!success) {
+                    Slog.w(TAG, "UserSwitch operation failed for " + clientMonitor + ", retrying in 3000ms");
+                    mHandler.postDelayed(BiometricScheduler.this::checkCurrentUserAndStartNextOperation, 3000);
+                } else {
+                    checkCurrentUserAndStartNextOperation();
+                }
             });
         }
     }
