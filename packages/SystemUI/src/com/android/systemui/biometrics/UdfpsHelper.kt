@@ -193,6 +193,23 @@ class UdfpsHelper(
         applyDimAlpha(targetAlpha)
     }
 
+    private fun applyDimAlpha(alpha: Float) {
+        alphaAnimator.cancel()
+        view.alpha = alpha
+        dimLayoutParams.alpha = alpha
+    }
+
+    private fun updateDimLayout() {
+        if (!view.isAttachedToWindow) {
+            return
+        }
+        try {
+            windowManager.updateViewLayout(view, dimLayoutParams)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "UDFPS dim layer is no longer attached", e)
+        }
+    }
+
     private fun ensureDimLayerAttached() {
         if (view.isAttachedToWindow) {
             return
