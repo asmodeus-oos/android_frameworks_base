@@ -197,6 +197,7 @@ class UdfpsHelper(
         alphaAnimator.cancel()
         view.alpha = alpha
         dimLayoutParams.alpha = alpha
+        updateDimLayout()
     }
 
     private fun updateDimLayout() {
