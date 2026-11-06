@@ -114,18 +114,24 @@ class UdfpsHelper(
         override fun onDisplayAdded(displayId: Int) {}
 
         override fun onDisplayChanged(displayId: Int) {
-            if (displayId != Display.DEFAULT_DISPLAY || !view.isAttachedToWindow) {
-                return
+            if (displayId == Display.DEFAULT_DISPLAY && view.isAttachedToWindow) {
+                brightnessToAlpha()
+                if (view.isAttachedToWindow) {
+                    try {
+                        windowManager.updateViewLayout(view, dimLayoutParams)
+                    } catch (e: IllegalArgumentException) {
+                        Log.w(TAG, "UDFPS dim layer is no longer attached", e)
+                    }
+                }
             }
-            if (isKeyguard && !shouldApplyKeyguardDim()) {
-                return
-            }
-            brightnessToAlpha()
-            updateDimLayout()
         }
 
         override fun onDisplayRemoved(displayId: Int) {}
     }
+
+    private var isDimLayerManaged: Boolean = false
+    private var isBrightnessMirrorShowing: Boolean = false
+    private var isFingerDown: Boolean = false
 
     private fun interpolate(
         value: Float,
@@ -187,46 +193,53 @@ class UdfpsHelper(
         applyDimAlpha(targetAlpha)
     }
 
-    private fun applyDimAlpha(alpha: Float) {
-        alphaAnimator.cancel()
-        view.alpha = alpha
-        dimLayoutParams.alpha = alpha
-    }
-
-    private fun updateDimLayout() {
-        if (!view.isAttachedToWindow) {
+    private fun ensureDimLayerAttached() {
+        if (view.isAttachedToWindow) {
             return
         }
-        try {
-            windowManager.updateViewLayout(view, dimLayoutParams)
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "UDFPS dim layer is no longer attached", e)
+        brightnessToAlpha()
+        windowManager.addView(view, dimLayoutParams)
+    }
+
+    private fun detachDimLayer() {
+        alphaAnimator.cancel()
+        if (view.isAttachedToWindow) {
+            try {
+                windowManager.removeView(view)
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "UDFPS dim layer was already removed", e)
+            }
         }
+        view.isVisible = false
     }
 
     fun addDimLayer() {
-        // Keep the dim window in the tree for the overlay lifetime so press is an
-        // alpha update, not addView. Keyguard stays at alpha 0 until finger-down
-        // so SDM/kernel do not enable panel HBM on idle lock/unlock.
-        if (isKeyguard) {
-            applyDimAlpha(0f)
-        } else {
-            brightnessToAlpha()
+        if (isDimLayerManaged) {
+            return
         }
-        view.isVisible = true
-        windowManager.addView(view, dimLayoutParams)
+        isDimLayerManaged = true
+        brightnessToAlpha()
         displayManager.registerDisplayListener(
             displayListener,
             null,
             DisplayManager.EVENT_TYPE_DISPLAY_BRIGHTNESS,
         )
+        // Keyguard: defer composing "Dim Layer for UDFPS" until finger-down so HWC does not
+        // assert fingerprint_mask / OFP while the lock screen is idle (keeps Night Light).
+        // Biometric prompt / enroll: attach immediately as before.
+        if (!isKeyguard) {
+            ensureDimLayerAttached()
+            view.isVisible = true
+        }
     }
 
     fun removeDimLayer() {
-        alphaAnimator.cancel()
+        detachDimLayer()
+        if (isDimLayerManaged) {
+            displayManager.unregisterDisplayListener(displayListener)
+        }
+        isDimLayerManaged = false
         isFingerDown = false
-        windowManager.removeView(view)
-        displayManager.unregisterDisplayListener(displayListener)
     }
 
     init {
@@ -246,7 +259,7 @@ class UdfpsHelper(
             brightnessMirrorShowingInteractor.isShowing.collect {
                 isBrightnessMirrorShowing = it
                 if (isKeyguard) {
-                    updateKeyguardDim()
+                    updateDimLayerVisibility()
                 } else {
                     view.isVisible = !it
                 }
@@ -254,32 +267,27 @@ class UdfpsHelper(
         }
     }
 
-    private var isBrightnessMirrorShowing: Boolean = false
-    private var isFingerDown: Boolean = false
-
     fun setFingerDown(fingerDown: Boolean) {
         if (isFingerDown == fingerDown) {
             return
         }
         isFingerDown = fingerDown
-        updateKeyguardDim()
+        updateDimLayerVisibility()
     }
 
-    private fun shouldApplyKeyguardDim(): Boolean {
-        return isFingerDown && !isBrightnessMirrorShowing
-    }
-
-    private fun updateKeyguardDim() {
-        if (!view.isAttachedToWindow) {
-            return
-        }
-        view.isVisible = true
-        if (shouldApplyKeyguardDim()) {
-            // Snap alpha so HBM and the dim pixels share the next composition.
+    private fun updateDimLayerVisibility() {
+        // On keyguard, only compose the dim layer while the finger is down. Showing it earlier
+        // asserts Oplus fingerprint_mask and engages the global HBM/OFP color path for the whole panel.
+        val shouldShow = isFingerDown && !isBrightnessMirrorShowing
+        if (shouldShow) {
+            ensureDimLayerAttached()
+            view.isVisible = true
             brightnessToAlpha()
+            alphaAnimator.cancel()
+            alphaAnimator.start()
         } else {
-            applyDimAlpha(0f)
+            // Detach so SurfaceFlinger/HWC drop the dim layer name and clear fingerprint_mask.
+            detachDimLayer()
         }
-        updateDimLayout()
     }
 }

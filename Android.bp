@@ -144,7 +144,6 @@ filegroup {
         ":deviceproductinfoconstants_aidl",
 
         ":adbrootservice_aidl",
-        ":lmofreeform_aidl",
 
         // For the generated R.java and Manifest.java
         ":framework-res{.aapt.srcjar}",

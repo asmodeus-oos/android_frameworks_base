@@ -22,6 +22,11 @@ filegroup {
     srcs: ["java/**/*.java"],
     exclude_srcs: [
         ":services.core-sources-am-wm",
+        // FaceSense is an optional AOSPA extension.  Ferrari has no face
+        // sensor and this checkout does not include its vendor AIDL module.
+        // Keep the extension sources out of the platform service library so
+        // the normal face HAL path remains buildable without that module.
+        "java/com/android/server/biometrics/sensors/face/sense/**/*.java",
     ],
     path: "java",
     visibility: [
@@ -155,7 +160,6 @@ java_library_static {
         ":device-state-config",
         ":memory-limiter-config",
         ":services-sources-telecom",
-        ":lmofreeform-display-adapter-java",
         "java/com/android/server/EventLogTags.logtags",
         "java/com/android/server/am/EventLogTags.logtags",
         "java/com/android/server/wm/EventLogTags.logtags",
@@ -276,7 +280,6 @@ java_library_static {
         "android.content.flags-aconfig-java",
         "trust_token",
         "ambientcontext_flags_lib",
-        "vendor.aospa.biometrics.face",
     ],
     javac_shard_size: 50,
     javacflags: [
